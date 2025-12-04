@@ -14,6 +14,7 @@ if __name__ == "__main__":
     parser.add_argument('--line-width', default=5, required=False, type=int)
     parser.add_argument('--font-size', default=20, required=False, type=int)
     parser.add_argument('--conf', default=0.2, required=False, type=float)
+    parser.add_argument('--print', action='store_true', help='Print predictions to stdout')
     args = parser.parse_args()
     
     # Automatically select device
@@ -28,6 +29,9 @@ if __name__ == "__main__":
         conf=args.conf,
         device=device,
     )
+    if args.print:
+        for r in det_res:
+            print(r.tojson(normalize=False))
     annotated_frame = det_res[0].plot(pil=True, line_width=args.line_width, font_size=args.font_size)
     if not os.path.exists(args.res_path):
         os.makedirs(args.res_path)

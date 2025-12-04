@@ -597,7 +597,11 @@ class Exporter:
         scale = 1 / 255
         classifier_config = None
         if self.model.task == "classify":
-            classifier_config = ct.ClassifierConfig(list(self.model.names.values())) if self.args.nms else None
+            names_obj = self.model.names if hasattr(self.model, "names") else {}
+            if isinstance(names_obj, dict):
+                classifier_config = ct.ClassifierConfig([names_obj[i] for i in range(len(names_obj))]) if self.args.nms else None
+            else:
+                classifier_config = ct.ClassifierConfig(list(names_obj)) if self.args.nms else None
             model = self.model
         elif self.model.task == "detect":
             model = IOSDetectModel(self.model, self.im) if self.args.nms else self.model
@@ -1075,9 +1079,13 @@ class Exporter:
         nms.iouThresholdInputFeatureName = "iouThreshold"
         nms.confidenceThresholdInputFeatureName = "confidenceThreshold"
         nms.iouThreshold = 0.45
-        nms.confidenceThreshold = 0.25
+        nms.confidenceThreshold = 0.1
         nms.pickTop.perClass = True
-        nms.stringClassLabels.vector.extend(names.values())
+        try:
+            cls_labels = [names[i] for i in range(nc)]
+        except Exception:
+            cls_labels = list(names.values())
+        nms.stringClassLabels.vector.extend(cls_labels)
         nms_model = ct.models.MLModel(nms_spec)
 
         # 4. Pipeline models together
@@ -1141,5 +1149,19 @@ class IOSDetectModel(torch.nn.Module):
 
     def forward(self, x):
         """Normalize predictions of object detection model with input size-dependent factors."""
-        xywh, cls = self.model(x)[0].transpose(0, 1).split((4, self.nc), 1)
+        y = self.model(x)[0]
+        if y.dim() == 3 and y.shape[0] == 1:
+            y = y[0]
+        d = y.shape[-1]
+        if d == 4 + self.nc:
+            xywh = y[..., :4]
+            cls = y[..., 4:]
+        else:
+            xyxy = y[..., :4]
+            score = y[..., -2]
+            label = y[..., -1].long()
+            n = y.shape[0]
+            cls = torch.zeros(n, self.nc, device=y.device, dtype=y.dtype)
+            cls[torch.arange(n, device=y.device), label] = score
+            xywh = torch.stack((xyxy[..., 0], xyxy[..., 1], xyxy[..., 2] - xyxy[..., 0], xyxy[..., 3] - xyxy[..., 1]), dim=-1)
         return cls, xywh * self.normalize  # confidence (3780, 80), coordinates (3780, 4)
